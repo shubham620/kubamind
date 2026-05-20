@@ -45,7 +45,7 @@ tensorflow==2.14.1
 
 # Time Series & Anomaly Detection
 pyod==1.1.1
-stumpy==1.12.1
+stumpy==1.14.1
 
 # NLP & Text Processing
 nltk==3.8.1
