@@ -23,7 +23,10 @@ aiohttp==3.9.1
 kubernetes==28.1.0
 
 # AI/ML Libraries
-langchain==0.1.4
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-core==0.1.52
+langsmith==0.1.147
 langchain-openai==0.0.8
 ollama==0.1.0
 sentence-transformers==2.2.2
