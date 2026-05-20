@@ -1,9 +1,6 @@
 version: '3.9'
 
 # Default network for all services
-networks:
-  kubemind-network:
-    driver: bridge
 
 services:
   # PostgreSQL Database - Relational Data Storage
