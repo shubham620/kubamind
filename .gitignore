@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+
+# Node
+node_modules/
+.next/
+dist/
+
+# Docker
+*.log
+
+# Kubernetes
+kubeconfig.yaml
+
+# AI/ML
+models/
+checkpoints/
+vector_store/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Database
+*.db
+
+# Environment
+.env.local
+.env.production
