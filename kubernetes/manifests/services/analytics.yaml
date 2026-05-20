@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: kubemind
+  labels:
+    app: analytics-service
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        version: v1
+    spec:
+      containers:
+      - name: analytics
+        image: nginx:latest
+        ports:
+        - containerPort: 8084
+          name: http
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8084
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        env:
+        - name: SERVICE_NAME
+          value: "analytics-service"
+        - name: SERVICE_PORT
+          value: "8084"
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics-service
+  namespace: kubemind
+  labels:
+    app: analytics-service
+spec:
+  selector:
+    app: analytics-service
+  type: ClusterIP
+  ports:
+  - protocol: TCP
+    port: 8084
+    targetPort: 8084
+    name: http

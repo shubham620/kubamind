@@ -1,0 +1,234 @@
+---
+# Prometheus Rules ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: kubemind
+data:
+  alert-rules.yml: |
+    groups:
+    - name: kubernetes.rules
+      interval: 30s
+      rules:
+      # Alert when pod is not healthy
+      - alert: KubernetesPodNotHealthy
+        expr: |
+          min_over_time(sum by(namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown|Failed"})[15m:1m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes pod not healthy (instance {{ $labels.pod }})"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for more than 15 minutes."
+
+      # Alert on high memory usage
+      - alert: KubernetesContainerHighMemoryUsage
+        expr: |
+          (sum(container_memory_working_set_bytes) BY (pod, namespace) / sum(container_spec_memory_limit_bytes > 0) BY (pod, namespace)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubernetes container high memory usage (instance {{ $labels.pod }})"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} memory usage is above 90%"
+
+      # Alert on high CPU usage
+      - alert: KubernetesContainerHighCpuUsage
+        expr: |
+          (sum(rate(container_cpu_usage_seconds_total[5m])) BY (pod, namespace) / sum(container_spec_cpu_quota/container_spec_cpu_period) BY (pod, namespace)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubernetes container high CPU usage (instance {{ $labels.pod }})"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} CPU usage is above 90%"
+
+      # Alert on node disk pressure
+      - alert: KubernetesNodeDiskPressure
+        expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node disk pressure (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} has DiskPressure condition"
+
+      # Alert on node memory pressure
+      - alert: KubernetesNodeMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node memory pressure (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} has MemoryPressure condition"
+
+      # Alert on node not ready
+      - alert: KubernetesNodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kubernetes node not ready (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} has been unready for a long time"
+
+      # Alert on persistent volume usage
+      - alert: KubernetesPersistentVolumeUsageHigh
+        expr: |
+          (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kubernetes persistent volume usage high (instance {{ $labels.persistentvolumeclaim }})"
+          description: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} usage is above 90%"
+
+    - name: node_exporter.rules
+      interval: 30s
+      rules:
+      # Alert on high node memory usage
+      - alert: NodeMemoryUsageHigh
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node memory usage high (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} memory usage is above 90%"
+
+      # Alert on high node disk usage
+      - alert: NodeDiskUsageHigh
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs"} / node_filesystem_size_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node disk usage high (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} disk usage is above 90%"
+
+      # Alert on high node CPU usage
+      - alert: NodeCpuUsageHigh
+        expr: |
+          (100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Node CPU usage high (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} CPU usage is above 85%"
+
+      # Alert when node is down
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node down (node {{ $labels.node }})"
+          description: "Node {{ $labels.node }} is down"
+
+    - name: prometheus.rules
+      interval: 30s
+      rules:
+      # Alert on Prometheus scrape failures
+      - alert: PrometheusScrapeFailed
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus scrape failed (job {{ $labels.job }})"
+          description: "Prometheus failed to scrape {{ $labels.job }}"
+
+      # Alert on Prometheus high memory usage
+      - alert: PrometheusMemoryUsageHigh
+        expr: |
+          (container_memory_working_set_bytes{pod="prometheus-0"} / 1.073741824e9) > 1.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prometheus memory usage high"
+          description: "Prometheus memory usage is above 1.5GB"
+
+  recording-rules.yml: |
+    groups:
+    - name: kubernetes.recording.rules
+      interval: 30s
+      rules:
+      - record: node:node_num_cpu:sum
+        expr: count(node_cpu_seconds_total{mode="system"}) by (node)
+
+      - record: node:node_cpu_utilisation:avg1m
+        expr: 100 - (avg by (node) (irate(node_cpu_seconds_total{mode="idle"}[1m])) * 100)
+
+      - record: node:node_memory_utilisation:ratio
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+
+      - record: namespace:container_cpu_usage_seconds:sum_rate
+        expr: sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)
+
+      - record: namespace:container_memory_usage_bytes:sum
+        expr: sum(container_memory_working_set_bytes) by (namespace)
+
+      - record: pod:container_cpu_usage_seconds:sum_rate
+        expr: sum(rate(container_cpu_usage_seconds_total[5m])) by (pod, namespace)
+
+      - record: pod:container_memory_usage_bytes:sum
+        expr: sum(container_memory_working_set_bytes) by (pod, namespace)
+
+---
+# Grafana Admin Password Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-credentials
+  namespace: kubemind
+type: Opaque
+stringData:
+  admin-password: "kubemind-admin-2024"
+
+---
+# Prometheus Storage Class
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: k8s.io/minikube-hostpath
+volumeBindingMode: Immediate
+parameters:
+  fstype: ext4
+  type: pd-ssd
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: kubemind
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: kubemind
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi

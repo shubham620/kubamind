@@ -1,0 +1,72 @@
+name: E2E Integration Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      COMPOSE_HTTP_TIMEOUT: 200
+      DOCKER_BUILDKIT: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Docker Compose plugin
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker-compose-plugin
+
+      - name: Build docker images
+        run: |
+          docker compose build --parallel --pull
+
+      - name: Start full stack
+        run: |
+          docker compose up -d --remove-orphans
+
+      - name: Wait for core services
+        run: |
+          chmod +x scripts/ci/health_check.sh || true
+          ./scripts/ci/health_check.sh http://localhost:8000/api/health 120
+          ./scripts/ci/health_check.sh http://localhost:9090/-/ready 120 || true
+          ./scripts/ci/health_check.sh http://localhost:3000/api/health 120 || true
+          ./scripts/ci/health_check.sh http://localhost:6333/api/collections 120 || true
+
+      - name: Run integration test runner
+        run: |
+          chmod +x scripts/ci/run_integration_tests.sh || true
+          ./scripts/ci/run_integration_tests.sh
+
+      - name: Collect docker compose logs
+        if: always()
+        run: |
+          mkdir -p build/artifacts/logs
+          docker compose ps --services | xargs -I {} sh -c 'docker compose logs {} > build/artifacts/logs/{}.log || true'
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kube-mind-artifacts
+          path: build/artifacts
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          docker compose down --remove-orphans

@@ -1,0 +1,300 @@
+{{- if .Values.observability.enabled }}
+---
+# Prometheus Deployment
+{{- if .Values.observability.prometheus.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubemind.fullname" . }}-prometheus
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubemind.selectorLabels" . | nindent 6 }}
+      component: prometheus
+  template:
+    metadata:
+      labels:
+        {{- include "kubemind.selectorLabels" . | nindent 8 }}
+        component: prometheus
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubemind.serviceAccountName" . }}
+      containers:
+        - name: prometheus
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.observability.prometheus.image.repository }}:{{ .Values.observability.prometheus.image.tag }}"
+          imagePullPolicy: {{ .Values.observability.prometheus.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.observability.prometheus.service.targetPort }}
+              protocol: TCP
+          
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time={{ .Values.observability.prometheus.retention }}"
+          
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-storage
+              mountPath: {{ .Values.observability.prometheus.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+          
+          resources:
+            {{- toYaml .Values.observability.prometheus.resources | nindent 12 }}
+      
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: {{ include "kubemind.fullname" . }}-prometheus-config
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.observability.prometheus.persistence.enabled }}
+        - name: prometheus-storage
+          emptyDir: {}
+        {{- end }}
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  
+  {{- if .Values.observability.prometheus.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: prometheus-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.observability.prometheus.persistence.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.observability.prometheus.persistence.size }}
+  {{- end }}
+
+---
+# Grafana Deployment
+{{- if .Values.observability.grafana.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubemind.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubemind.selectorLabels" . | nindent 6 }}
+      component: grafana
+  template:
+    metadata:
+      labels:
+        {{- include "kubemind.selectorLabels" . | nindent 8 }}
+        component: grafana
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubemind.serviceAccountName" . }}
+      containers:
+        - name: grafana
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.observability.grafana.image.repository }}:{{ .Values.observability.grafana.image.tag }}"
+          imagePullPolicy: {{ .Values.observability.grafana.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.observability.grafana.service.targetPort }}
+              protocol: TCP
+          
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "{{ .Values.observability.grafana.adminUser }}"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubemind.fullname" . }}-grafana-secret
+                  key: admin-password
+          
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: {{ .Values.observability.grafana.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+          
+          resources:
+            {{- toYaml .Values.observability.grafana.resources | nindent 12 }}
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.observability.grafana.persistence.enabled }}
+        - name: grafana-storage
+          emptyDir: {}
+        {{- end }}
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  
+  {{- if .Values.observability.grafana.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: grafana-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.observability.grafana.persistence.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.observability.grafana.persistence.size }}
+  {{- end }}
+
+---
+# Loki Deployment
+{{- if .Values.observability.loki.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubemind.fullname" . }}-loki
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubemind.selectorLabels" . | nindent 6 }}
+      component: loki
+  template:
+    metadata:
+      labels:
+        {{- include "kubemind.selectorLabels" . | nindent 8 }}
+        component: loki
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubemind.serviceAccountName" . }}
+      containers:
+        - name: loki
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.observability.loki.image.repository }}:{{ .Values.observability.loki.image.tag }}"
+          imagePullPolicy: {{ .Values.observability.loki.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.observability.loki.service.targetPort }}
+              protocol: TCP
+          
+          args:
+            - "-config.file=/etc/loki/local-config.yaml"
+          
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          
+          volumeMounts:
+            - name: loki-config
+              mountPath: /etc/loki
+            - name: loki-storage
+              mountPath: {{ .Values.observability.loki.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+          
+          resources:
+            {{- toYaml .Values.observability.loki.resources | nindent 12 }}
+      
+      volumes:
+        - name: loki-config
+          configMap:
+            name: {{ include "kubemind.fullname" . }}-loki-config
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.observability.loki.persistence.enabled }}
+        - name: loki-storage
+          emptyDir: {}
+        {{- end }}
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  
+  {{- if .Values.observability.loki.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: loki-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.observability.loki.persistence.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.observability.loki.persistence.size }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,296 @@
+# Default values for KubeMind Helm Chart
+# This is a YAML-formatted file for Kubernetes configuration
+
+# Global configuration
+global:
+  environment: production
+  namespace: kubemind
+  imagePullPolicy: IfNotPresent
+
+# Backend Configuration
+backend:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: kubemind/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  
+  environment:
+    NODE_ENV: production
+    LOG_LEVEL: info
+    API_PORT: "8080"
+  
+  secrets:
+    database:
+      host: postgres
+      port: "5432"
+      name: kubemind_db
+      username: kubemind
+      # password: set via helm install --set backend.secrets.database.password=<value>
+
+# Frontend Configuration
+frontend:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: kubemind/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 3000
+  
+  ingress:
+    enabled: true
+    className: nginx
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: kubemind.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+      # - secretName: kubemind-tls
+      #   hosts:
+      #     - kubemind.example.com
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  
+  environment:
+    REACT_APP_API_URL: http://backend:8080
+    REACT_APP_ENV: production
+
+# Database Configuration
+database:
+  enabled: true
+  type: postgres
+  
+  postgres:
+    image:
+      repository: postgres
+      tag: "15-alpine"
+      pullPolicy: IfNotPresent
+    
+    service:
+      type: ClusterIP
+      port: 5432
+      targetPort: 5432
+    
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+    
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 10Gi
+      mountPath: /var/lib/postgresql/data
+      subPath: postgres
+    
+    environment:
+      POSTGRES_DB: kubemind_db
+      POSTGRES_USER: kubemind
+      # POSTGRES_PASSWORD: set via helm install --set database.postgres.environment.POSTGRES_PASSWORD=<value>
+    
+    backup:
+      enabled: true
+      schedule: "0 2 * * *"  # Daily at 2 AM
+      retention: 7  # days
+
+# Observability Stack Configuration
+observability:
+  enabled: true
+  
+  prometheus:
+    enabled: true
+    image:
+      repository: prom/prometheus
+      tag: latest
+      pullPolicy: IfNotPresent
+    
+    service:
+      type: ClusterIP
+      port: 9090
+      targetPort: 9090
+    
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+    
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 5Gi
+      mountPath: /prometheus
+    
+    retention: 15d
+  
+  grafana:
+    enabled: true
+    image:
+      repository: grafana/grafana
+      tag: latest
+      pullPolicy: IfNotPresent
+    
+    service:
+      type: ClusterIP
+      port: 3000
+      targetPort: 3000
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 1Gi
+      mountPath: /var/lib/grafana
+    
+    adminUser: admin
+    # adminPassword: set via helm install --set observability.grafana.adminPassword=<value>
+  
+  loki:
+    enabled: true
+    image:
+      repository: grafana/loki
+      tag: latest
+      pullPolicy: IfNotPresent
+    
+    service:
+      type: ClusterIP
+      port: 3100
+      targetPort: 3100
+    
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+    
+    persistence:
+      enabled: true
+      storageClass: standard
+      size: 5Gi
+      mountPath: /loki
+
+# Redis Cache Configuration (Optional)
+redis:
+  enabled: false
+  image:
+    repository: redis
+    tag: "7-alpine"
+  
+  service:
+    type: ClusterIP
+    port: 6379
+    targetPort: 6379
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  
+  persistence:
+    enabled: true
+    storageClass: standard
+    size: 2Gi
+
+# Common Configuration
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Network Policy Configuration
+networkPolicy:
+  enabled: true
+  ingressRules:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+
+# RBAC Configuration
+rbac:
+  create: true
+
+# Service Account Configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: kubemind

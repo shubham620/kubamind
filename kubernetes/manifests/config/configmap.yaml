@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubemind-config
+  namespace: kubemind
+data:
+  ENVIRONMENT: "production"
+  PROMETHEUS_URL: "http://prometheus:9090"
+  LOKI_URL: "http://loki:3100"
+  QDRANT_HOST: "qdrant"
+  QDRANT_PORT: "6333"
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubemind-secrets
+  namespace: kubemind
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: "kubemind_secure_password"
+  QDRANT_API_KEY: "test_api_key"

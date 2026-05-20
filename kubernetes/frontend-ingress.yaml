@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubemind-frontend
+  namespace: kubemind
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: kubemind-frontend
+  template:
+    metadata:
+      labels:
+        app: kubemind-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: kubemind-frontend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NEXT_PUBLIC_API_URL
+          value: "https://api.kubemind.local"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "250m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubemind-frontend
+  namespace: kubemind
+spec:
+  type: ClusterIP
+  selector:
+    app: kubemind-frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubemind-ingress
+  namespace: kubemind
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/websocket-services: kubemind-backend
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  tls:
+  - hosts:
+    - kubemind.local
+    - api.kubemind.local
+    secretName: kubemind-tls
+  rules:
+  - host: kubemind.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kubemind-frontend
+            port:
+              number: 3000
+  - host: api.kubemind.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kubemind-backend
+            port:
+              number: 8000
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kubemind-frontend-pdb
+  namespace: kubemind
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: kubemind-frontend
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kubemind-backend-pdb
+  namespace: kubemind
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: kubemind-backend

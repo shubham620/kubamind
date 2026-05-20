@@ -1,0 +1,191 @@
+{{- if .Values.database.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kubemind.fullname" . }}-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: database
+spec:
+  serviceName: {{ include "kubemind.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kubemind.selectorLabels" . | nindent 6 }}
+      component: database
+  template:
+    metadata:
+      labels:
+        {{- include "kubemind.selectorLabels" . | nindent 8 }}
+        component: database
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgres
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.database.postgres.image.repository }}:{{ .Values.database.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.database.postgres.image.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: {{ .Values.database.postgres.service.targetPort }}
+              protocol: TCP
+          
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U {{ .Values.database.postgres.environment.POSTGRES_USER }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U {{ .Values.database.postgres.environment.POSTGRES_USER }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          
+          env:
+            - name: POSTGRES_DB
+              value: "{{ .Values.database.postgres.environment.POSTGRES_DB }}"
+            - name: POSTGRES_USER
+              value: "{{ .Values.database.postgres.environment.POSTGRES_USER }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kubemind.fullname" . }}-db-secret
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/postgres
+          
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: {{ .Values.database.postgres.persistence.mountPath }}
+            - name: tmp
+              mountPath: /tmp
+            - name: run-postgresql
+              mountPath: /var/run/postgresql
+          
+          resources:
+            {{- toYaml .Values.database.postgres.resources | nindent 12 }}
+      
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: run-postgresql
+          emptyDir: {}
+      
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  
+  {{- if .Values.database.postgres.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+        labels:
+          {{- include "kubemind.labels" . | nindent 10 }}
+          component: database
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.database.postgres.persistence.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.database.postgres.persistence.size }}
+  {{- else }}
+      volumes:
+        - name: postgres-storage
+          emptyDir: {}
+  {{- end }}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubemind.fullname" . }}-postgres
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: database
+spec:
+  type: {{ .Values.database.postgres.service.type }}
+  clusterIP: None
+  ports:
+    - port: {{ .Values.database.postgres.service.port }}
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "kubemind.selectorLabels" . | nindent 4 }}
+    component: database
+
+---
+{{- if .Values.database.postgres.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubemind.fullname" . }}-postgres-backup
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "kubemind.labels" . | nindent 4 }}
+    component: database-backup
+spec:
+  schedule: "{{ .Values.database.postgres.backup.schedule }}"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: {{ include "kubemind.serviceAccountName" . }}
+          containers:
+            - name: postgres-backup
+              image: "{{ .Values.database.postgres.image.repository }}:{{ .Values.database.postgres.image.tag }}"
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  BACKUP_DIR="/backups"
+                  BACKUP_FILE="$BACKUP_DIR/db_$(date +%Y%m%d_%H%M%S).sql.gz"
+                  mkdir -p $BACKUP_DIR
+                  pg_dump -h {{ include "kubemind.fullname" . }}-postgres -U {{ .Values.database.postgres.environment.POSTGRES_USER }} {{ .Values.database.postgres.environment.POSTGRES_DB }} | gzip > $BACKUP_FILE
+                  echo "Backup created: $BACKUP_FILE"
+                  # Cleanup old backups
+                  find $BACKUP_DIR -name "db_*.sql.gz" -mtime +{{ .Values.database.postgres.backup.retention }} -delete
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kubemind.fullname" . }}-db-secret
+                      key: password
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          volumes:
+            - name: backup-storage
+              emptyDir: {}
+          restartPolicy: OnFailure
+{{- end }}
+{{- end }}

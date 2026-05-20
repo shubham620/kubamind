@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-dark text-white;
+}
+
+.dashboard-card {
+  @apply bg-gray-900 border border-gray-700 rounded-lg p-6 shadow-lg;
+}
+
+.metric-badge {
+  @apply inline-block px-3 py-1 rounded-full text-sm font-medium;
+}
+
+.metric-badge-high {
+  @apply bg-red-900 text-red-200;
+}
+
+.metric-badge-medium {
+  @apply bg-yellow-900 text-yellow-200;
+}
+
+.metric-badge-low {
+  @apply bg-green-900 text-green-200;
+}
+
+.animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

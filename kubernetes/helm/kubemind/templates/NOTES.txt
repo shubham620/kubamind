@@ -1,0 +1,94 @@
+1. Get the status of your KubeMind AI deployment:
+  kubectl get deployments -n {{ .Values.global.namespace }}
+  kubectl get pods -n {{ .Values.global.namespace }}
+
+2. Access the KubeMind AI Frontend:
+{{- if .Values.frontend.ingress.enabled }}
+  Frontend will be available at: http://{{ (index .Values.frontend.ingress.hosts 0).host }}
+  
+  Note: Make sure your DNS is configured to point to your Ingress Controller.
+{{- else }}
+  kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-frontend 8080:{{ .Values.frontend.service.port }}
+  Frontend will be available at: http://localhost:8080
+{{- end }}
+
+3. Access the Backend API:
+  kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-backend 3000:{{ .Values.backend.service.port }}
+  Backend API will be available at: http://localhost:3000
+
+4. Monitoring and Observability:
+{{- if and .Values.observability.enabled .Values.observability.prometheus.enabled }}
+  Prometheus:
+    kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-prometheus 9090:{{ .Values.observability.prometheus.service.port }}
+    Access at: http://localhost:9090
+{{- end }}
+
+{{- if and .Values.observability.enabled .Values.observability.grafana.enabled }}
+  Grafana:
+    kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-grafana 3000:{{ .Values.observability.grafana.service.port }}
+    Access at: http://localhost:3000
+    Username: {{ .Values.observability.grafana.adminUser }}
+    Password: (set via helm install --set observability.grafana.adminPassword=<value>)
+{{- end }}
+
+{{- if and .Values.observability.enabled .Values.observability.loki.enabled }}
+  Loki:
+    kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-loki 3100:{{ .Values.observability.loki.service.port }}
+    Access at: http://localhost:3100
+{{- end }}
+
+5. Database Access:
+{{- if .Values.database.enabled }}
+  PostgreSQL:
+    kubectl port-forward -n {{ .Values.global.namespace }} svc/{{ include "kubemind.fullname" . }}-postgres 5432:{{ .Values.database.postgres.service.port }}
+    
+    Connection details:
+    - Host: localhost (after port-forward) or {{ include "kubemind.fullname" . }}-postgres.{{ .Values.global.namespace }}.svc.cluster.local (from within cluster)
+    - Port: 5432
+    - Database: {{ .Values.database.postgres.environment.POSTGRES_DB }}
+    - Username: {{ .Values.database.postgres.environment.POSTGRES_USER }}
+    - Password: (set via helm install --set backend.secrets.database.password=<value>)
+{{- end }}
+
+6. View Logs:
+  kubectl logs -n {{ .Values.global.namespace }} -l app.kubernetes.io/name=kubemind -f
+
+7. Useful kubectl commands:
+  # Get all resources
+  kubectl get all -n {{ .Values.global.namespace }}
+  
+  # Describe a deployment
+  kubectl describe deployment -n {{ .Values.global.namespace }} {{ include "kubemind.fullname" . }}-backend
+  
+  # Get pod logs
+  kubectl logs -n {{ .Values.global.namespace }} <pod-name>
+  
+  # Port forward to a service
+  kubectl port-forward -n {{ .Values.global.namespace }} svc/<service-name> <local-port>:<remote-port>
+
+8. Upgrading the chart:
+  helm upgrade {{ .Release.Name }} kubemind \
+    --namespace {{ .Values.global.namespace }} \
+    --values values.yaml
+
+9. Uninstalling the chart:
+  helm uninstall {{ .Release.Name }} --namespace {{ .Values.global.namespace }}
+
+10. Troubleshooting:
+  # Check pod status
+  kubectl get pods -n {{ .Values.global.namespace }} -o wide
+  
+  # Check events
+  kubectl get events -n {{ .Values.global.namespace }} --sort-by='.lastTimestamp'
+  
+  # Check resource usage
+  kubectl top nodes
+  kubectl top pods -n {{ .Values.global.namespace }}
+  
+  # Describe a failing pod
+  kubectl describe pod -n {{ .Values.global.namespace }} <pod-name>
+
+For more information and documentation:
+- Helm: https://helm.sh/docs/
+- Kubernetes: https://kubernetes.io/docs/
+- KubeMind AI: https://github.com/yourusername/kubemind-ai
